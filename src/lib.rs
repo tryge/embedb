@@ -1,7 +1,11 @@
+mod page_store;
+
+
+
 #[cfg(test)]
 mod tests {
     #[test]
-    fn it_works() {
+    fn creates_new_database_file() {
         assert_eq!(2 + 2, 4);
     }
 }
