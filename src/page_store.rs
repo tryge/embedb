@@ -5,15 +5,15 @@ use memmap::{Mmap, MmapOptions};
 
 const PAGE_SIZE : usize = 4096;
 
-pub struct PageStore<'a> {
-    file: & 'a File,
+pub struct PageStore {
+    file: File,
     mmap: Mmap,
     max_size: usize,
     pub(crate) size: usize,
 }
 
-impl <'a>PageStore<'a> {
-    pub fn new(file: &File, max_size: usize) -> Result<PageStore> {
+impl PageStore {
+    pub fn new(file: File, max_size: usize) -> Result<PageStore> {
         let current_size = file.metadata()?.len() as usize;
         let options = MmapOptions::new().len(max_size);
         let mmap = unsafe {
@@ -104,7 +104,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; PAGE_SIZE-1];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page(0, &vec) {
             Err(e) => (),
@@ -117,7 +117,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; PAGE_SIZE+1];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page(0, &vec) {
             Err(e) => (),
@@ -130,7 +130,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; PAGE_SIZE];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         store.write_page(0, &vec).unwrap();
         store.flush().unwrap();
@@ -143,7 +143,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; PAGE_SIZE];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         store.write_page(1, &vec).unwrap();
         store.write_page(0, &vec).unwrap();
@@ -157,7 +157,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; 256];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page_range(0, PAGE_SIZE - vec.len() + 1, &vec) {
             Err(e) => (),
@@ -170,7 +170,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; 256];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         store.write_page_range(0, 0, &vec).unwrap();
         store.flush().unwrap();
@@ -183,7 +183,7 @@ mod tests {
         let vec: Vec<u8> = vec![0; 256];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         store.write_page_range(0, 128, &vec).unwrap();
         store.flush().unwrap();
@@ -195,7 +195,7 @@ mod tests {
     fn cannot_read_beyond_current_file_size() {
         let vec: Vec<u8> = vec![1,2,3,4,5];
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
         store.write_page_range(0, 0, &vec).unwrap();
         match store.read_page(1) {
             Err(e) => (),
@@ -208,7 +208,7 @@ mod tests {
         let vec: Vec<u8> = vec![1,2,3,4,5];
 
         let file = tempfile().unwrap();
-        let mut store = PageStore::new(&file, TESTDB_MAX_SIZE).unwrap();
+        let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         store.write_page_range(0, 0, &vec).unwrap();
         let page = store.read_page(0).unwrap();
