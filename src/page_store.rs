@@ -38,25 +38,16 @@ impl PageWriter {
         self.ensure_page_exists_at(pos)?;
         self.file.seek(SeekFrom::Start(pos as u64))?;
         self.file.write_all(buf)?;
-        self.ensure_size_updated(pos);
         Ok(())
     }
 
     fn ensure_page_exists_at(&mut self, pos: usize) -> Result<()> {
-        let empty_page: Vec<u8> = vec![0; PAGE_SIZE];
-
-        while pos > self.size {
-            self.file.seek(SeekFrom::End(0))?;
-            self.file.write_all(&empty_page)?;
-            self.size += PAGE_SIZE
+        let new_size = (pos & (!(PAGE_SIZE-1))) + PAGE_SIZE;
+        if new_size > self.size {
+            self.file.set_len(new_size as u64)?;
+            self.size = new_size
         }
         Ok(())
-    }
-
-    fn ensure_size_updated(&mut self, pos: usize) {
-        if pos == self.size {
-            self.size += PAGE_SIZE
-        }
     }
 }
 
@@ -107,6 +98,20 @@ mod tests {
         writer.flush().unwrap();
 
         assert_eq!(PAGE_SIZE, writer.size)
+    }
+
+    #[test]
+    fn writes_existing_page() {
+        let vec: Vec<u8> = vec![0; PAGE_SIZE];
+
+        let file = tempfile().unwrap();
+        let mut writer = PageWriter { file, size: 0 };
+
+        writer.write_page(1, &vec).unwrap();
+        writer.write_page(0, &vec).unwrap();
+        writer.flush().unwrap();
+
+        assert_eq!(2 * PAGE_SIZE, writer.size)
     }
 
     #[test]
