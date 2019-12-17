@@ -3,13 +3,13 @@ use std::io::{Seek, Write, SeekFrom};
 use std::io::{Error, ErrorKind, Result};
 use memmap::{Mmap, MmapOptions};
 
-const PAGE_SIZE : usize = 4096;
+const PAGE_SIZE: usize = 4096;
 
 pub struct PageStore {
     file: File,
     mmap: Mmap,
     max_size: usize,
-    pub(crate) size: usize,
+    pub(crate) current_size: usize,
 }
 
 impl PageStore {
@@ -17,9 +17,9 @@ impl PageStore {
         let current_size = file.metadata()?.len() as usize;
         let options = MmapOptions::new().len(max_size);
         let mmap = unsafe {
-            MmapOptions::new().len(1024*1024).map(&file)?
+            MmapOptions::new().len(1024 * 1024).map(&file)?
         };
-        Ok(PageStore { file, mmap, max_size, size: current_size })
+        Ok(PageStore { file, mmap, max_size, current_size })
     }
 
     pub fn flush(&mut self) -> Result<()> {
@@ -30,36 +30,32 @@ impl PageStore {
     pub fn read_page(&self, id: usize) -> Result<&[u8]> {
         let offset = id * PAGE_SIZE;
         let end = offset + PAGE_SIZE;
-        if end > self.size {
-                Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    if end > self.max_size {
-                        format!("invalid page, the specified page is beyond maximum file size ({})", self.max_size)
-                    } else {
-                        format!("invalid page, the specified page does not yet exist({})", self.size)
-                    }
-                ))
-        } else {
-            Ok(&self.mmap[offset..end])
+        if end > self.current_size {
+            return invalid_input(
+                if end > self.max_size {
+                    format!("invalid page, the specified page is beyond maximum file size (max size = {})", self.max_size)
+                } else {
+                    format!("invalid page, the specified page does not yet exist(current size = {})", self.current_size)
+                }
+            );
         }
+        Ok(&self.mmap[offset..end])
     }
 
     pub fn write_page(&mut self, id: usize, buf: &[u8]) -> Result<()> {
         if buf.len() != PAGE_SIZE {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
+            return invalid_input(
                 format!("invalid size, buf needs to hold exactly {} bytes", PAGE_SIZE)
-            ))
+            );
         }
         self.write_buf_at(buf, id * PAGE_SIZE)
     }
 
     pub fn write_page_range(&mut self, id: usize, offset: usize, buf: &[u8]) -> Result<()> {
         if offset + buf.len() > PAGE_SIZE {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
+            return invalid_input(
                 "invalid (offset,size), write would overrun page"
-            ))
+            );
         }
         self.write_buf_at(buf, id * PAGE_SIZE + offset)
     }
@@ -72,19 +68,24 @@ impl PageStore {
     }
 
     fn ensure_page_exists_at(&mut self, pos: usize) -> Result<()> {
-        let new_size = (pos & (!(PAGE_SIZE-1))) + PAGE_SIZE;
+        let new_size = (pos & (!(PAGE_SIZE - 1))) + PAGE_SIZE;
         if new_size > self.max_size {
-            Err(Error::new(
-                ErrorKind::InvalidInput,
+            return invalid_input(
                 format!("invalid page, the specified page is beyond maximum file size ({})", self.max_size)
-            ))
-        } else if new_size > self.size {
-            self.file.set_len(new_size as u64)?;
-            self.size = new_size;
-            Ok(())
-        } else {
-            Ok(())
+            );
         }
+        if new_size > self.current_size {
+            self.file.set_len(new_size as u64)?;
+            self.current_size = new_size;
+        }
+        Ok(())
+    }
+
+    fn invalid_input<T>(message: &str) -> Result<T> {
+        Err(Error::new(
+            ErrorKind::InvalidInput,
+            message,
+        ))
     }
 }
 
@@ -97,11 +98,11 @@ mod tests {
     use std::io::Result;
     use tempfile::tempfile;
 
-    const TESTDB_MAX_SIZE : usize = 16384;
+    const TESTDB_MAX_SIZE: usize = 16384;
 
     #[test]
     fn buffer_too_small() {
-        let vec: Vec<u8> = vec![0; PAGE_SIZE-1];
+        let vec: Vec<u8> = vec![0; PAGE_SIZE - 1];
 
         let file = tempfile().unwrap();
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
@@ -114,7 +115,7 @@ mod tests {
 
     #[test]
     fn buffer_too_big() {
-        let vec: Vec<u8> = vec![0; PAGE_SIZE+1];
+        let vec: Vec<u8> = vec![0; PAGE_SIZE + 1];
 
         let file = tempfile().unwrap();
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
@@ -135,7 +136,7 @@ mod tests {
         store.write_page(0, &vec).unwrap();
         store.flush().unwrap();
 
-        assert_eq!(PAGE_SIZE, store.size)
+        assert_eq!(PAGE_SIZE, store.current_size)
     }
 
     #[test]
@@ -149,7 +150,7 @@ mod tests {
         store.write_page(0, &vec).unwrap();
         store.flush().unwrap();
 
-        assert_eq!(2 * PAGE_SIZE, store.size)
+        assert_eq!(2 * PAGE_SIZE, store.current_size)
     }
 
     #[test]
@@ -175,7 +176,7 @@ mod tests {
         store.write_page_range(0, 0, &vec).unwrap();
         store.flush().unwrap();
 
-        assert_eq!(PAGE_SIZE, store.size)
+        assert_eq!(PAGE_SIZE, store.current_size)
     }
 
     #[test]
@@ -188,12 +189,12 @@ mod tests {
         store.write_page_range(0, 128, &vec).unwrap();
         store.flush().unwrap();
 
-        assert_eq!(PAGE_SIZE, store.size);
+        assert_eq!(PAGE_SIZE, store.current_size);
     }
 
     #[test]
     fn cannot_read_beyond_current_file_size() {
-        let vec: Vec<u8> = vec![1,2,3,4,5];
+        let vec: Vec<u8> = vec![1, 2, 3, 4, 5];
         let file = tempfile().unwrap();
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
         store.write_page_range(0, 0, &vec).unwrap();
@@ -205,7 +206,7 @@ mod tests {
 
     #[test]
     fn read_back_page() {
-        let vec: Vec<u8> = vec![1,2,3,4,5];
+        let vec: Vec<u8> = vec![1, 2, 3, 4, 5];
 
         let file = tempfile().unwrap();
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
@@ -214,6 +215,6 @@ mod tests {
         let page = store.read_page(0).unwrap();
 
         assert_eq!(&vec[0..5], &page[0..5]);
-        assert_eq!(0 as u8, page[PAGE_SIZE-1])
+        assert_eq!(0 as u8, page[PAGE_SIZE - 1])
     }
 }
