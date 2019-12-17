@@ -19,9 +19,8 @@ pub struct PageStore {
 impl PageStore {
     pub fn new(file: File, max_size: usize) -> Result<PageStore> {
         let current_size = file.metadata()?.len() as usize;
-        let options = MmapOptions::new().len(max_size);
         let mmap = unsafe {
-           options.map(&file)?
+           MmapOptions::new().len(max_size).map(&file)?
         };
         Ok(PageStore { file, mmap, max_size, current_size })
     }
