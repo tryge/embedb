@@ -123,7 +123,7 @@ impl<'a> MemoryPage {
     }
 }
 
-const BITMAP_INDEX_PAGE_TYPE : u32 = 1;
+const BITMAP_INDEX_PAGE_TYPE: u32 = 1;
 const BITMAP_INDEX_PAGE_HEADER_SIZE: usize = 16;
 const BITMAP_INDEX_PAGE_COUNT: u16 = ((PAGE_SIZE - BITMAP_INDEX_PAGE_HEADER_SIZE) * 8) as u16;
 
@@ -163,17 +163,16 @@ impl<'a> BitmapAllocationPage {
             if f(candidate) {
                 self.mark_used(candidate);
 
-                return Some(candidate)
-            } else {
-                self.current_first_free_page_idx = self.find_next_free_page_index(self.current_first_free_page_idx+1)
+                return Some(candidate);
             }
+            self.current_first_free_page_idx = self.find_next_free_page_index(self.current_first_free_page_idx + 1)
         }
         None
     }
 
     fn mark_used(&mut self, page_id: u32) {
         let offset = page_id - self.first_managed_page_id;
-        let byte_index = BITMAP_INDEX_PAGE_HEADER_SIZE + (offset as usize >> 3);
+        let byte_index = (offset as usize >> 3);
         let bit: u8 = (1 << (offset & 0x07)) as u8;
 
         let bitmap = self.bitmap();
@@ -193,7 +192,7 @@ impl<'a> BitmapAllocationPage {
 
     fn find_next_free_page_index(&mut self, start: u16) -> u16 {
         let bitmap = self.bitmap();
-        let byte_start_index = BITMAP_INDEX_PAGE_HEADER_SIZE + (start >> 3) as usize;
+        let byte_start_index = (start >> 3) as usize;
 
         for byte_index in byte_start_index..PAGE_SIZE {
             let byte = bitmap[byte_index];
@@ -201,7 +200,7 @@ impl<'a> BitmapAllocationPage {
                 for bit in 0..7 as u16 {
                     let mask = (1 << bit) as u8;
                     if byte & mask == 0 {
-                        let candidate = (((byte_index - BITMAP_INDEX_PAGE_HEADER_SIZE) as u16) << 3) + bit;
+                        let candidate = ((byte_index as u16) << 3) + bit;
                         if candidate >= start {
                             return candidate;
                         }
@@ -225,7 +224,7 @@ impl<'a> BitmapAllocationPage {
 
     fn mark_free(&mut self, page_id: u32) {
         let offset = page_id - self.first_managed_page_id;
-        let byte_index = BITMAP_INDEX_PAGE_HEADER_SIZE + (offset as usize >> 3);
+        let byte_index = (offset as usize >> 3);
         let bit: u8 = (1 << (offset & 0x07)) as u8;
         let mask: u8 = !bit;
 
@@ -270,7 +269,6 @@ impl<'a> BitmapAllocationPage {
         self.buffer[14..16].clone_from_slice(&free_page_index_bytes);
     }
 }
-
 
 
 fn invalid_input<T, E>(message: E) -> Result<T>

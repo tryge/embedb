@@ -210,4 +210,5 @@ fn persist_writes_correct_index() {
     assert_eq!(0, memory_page.extract_u32(8)); // first_managed_page_id
     assert_eq!(BITMAP_INDEX_PAGE_COUNT - 3, memory_page.extract_u16(12)); // free page count
     assert_eq!(3, memory_page.extract_u16(14)); // free page count
+    assert_eq!(7, memory_page.content()[16]);
 }
