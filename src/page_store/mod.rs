@@ -194,7 +194,7 @@ impl<'a> BitmapAllocationPage {
         let bitmap = self.bitmap();
         let byte_start_index = (start >> 3) as usize;
 
-        for byte_index in byte_start_index..PAGE_SIZE {
+        for byte_index in byte_start_index..(PAGE_SIZE - BITMAP_INDEX_PAGE_HEADER_SIZE) {
             let byte = bitmap[byte_index];
             if byte != 0xFF {
                 for bit in 0..7 as u16 {
