@@ -127,7 +127,7 @@ const BITMAP_INDEX_PAGE_TYPE: u32 = 1;
 const BITMAP_INDEX_PAGE_HEADER_SIZE: usize = 16;
 const BITMAP_INDEX_PAGE_COUNT: u16 = ((PAGE_SIZE - BITMAP_INDEX_PAGE_HEADER_SIZE) * 8) as u16;
 
-pub struct BitmapAllocationPage {
+pub struct BitmapIndexPage {
     page_id: u32,
     first_managed_page_id: u32,
     last_managed_page_id: u32,
@@ -137,11 +137,11 @@ pub struct BitmapAllocationPage {
     buffer: [u8; PAGE_SIZE],
 }
 
-impl<'a> BitmapAllocationPage {
-    pub fn new(page_id: u32, first_managed_page_id: u32) -> BitmapAllocationPage {
+impl<'a> BitmapIndexPage {
+    pub fn new(page_id: u32, first_managed_page_id: u32) -> BitmapIndexPage {
         let last_managed_page_id = first_managed_page_id + (BITMAP_INDEX_PAGE_COUNT as u32) - 1;
 
-        let mut page = BitmapAllocationPage {
+        let mut page = BitmapIndexPage {
             page_id,
             first_managed_page_id,
             last_managed_page_id,
@@ -156,6 +156,54 @@ impl<'a> BitmapAllocationPage {
         page
     }
 
+    pub fn load(page: &MemoryPage, f: fn(u32) -> bool) -> Option<BitmapIndexPage> {
+        let page_type = page.page_type();
+        if page_type != BITMAP_INDEX_PAGE_TYPE {
+            return None
+        }
+
+        let first_managed_page_id = page.extract_u32(8);
+        let free_page_count = page.extract_u16(12);
+        let first_free_page_idx = page.extract_u16(14);
+        let mut current_first_free_page_idx = first_free_page_idx;
+        let mut page_id : u32 = 0xFFFFFFFF;
+
+        let bitmap = &page.content()[BITMAP_INDEX_PAGE_HEADER_SIZE..];
+        while current_first_free_page_idx != 0xFFFF {
+            let candidate = first_managed_page_id + current_first_free_page_idx as u32;
+            if f(candidate) {
+                page_id = candidate;
+                break;
+            } else {
+                current_first_free_page_idx = BitmapIndexPage::find_next_free_page_index(bitmap, current_first_free_page_idx + 1);
+            }
+        };
+        if current_first_free_page_idx == 0xFFFF {
+            return None
+        }
+        let next_free_page_idx = BitmapIndexPage::find_next_free_page_index(bitmap, current_first_free_page_idx + 1);
+        if next_free_page_idx == 0xFFFF {
+            return None
+        }
+
+        let mut buffer = [0; PAGE_SIZE];
+        buffer.clone_from_slice(page.content());
+
+        let mut index = BitmapIndexPage {
+            page_id,
+            first_managed_page_id,
+            last_managed_page_id: first_managed_page_id + BITMAP_INDEX_PAGE_COUNT as u32,
+            current_first_free_page_idx,
+            first_free_page_idx,
+            free_page_count,
+            buffer
+        };
+        index.mark_used(page_id);
+        index.mark_free(page.page_id());
+
+        Some(index)
+    }
+
 
     pub fn allocate(&mut self, f: fn(u32) -> bool) -> Option<u32> {
         while self.current_first_free_page_idx != 0xFFFF {
@@ -165,7 +213,7 @@ impl<'a> BitmapAllocationPage {
 
                 return Some(candidate);
             }
-            self.current_first_free_page_idx = self.find_next_free_page_index(self.current_first_free_page_idx + 1)
+            self.current_first_free_page_idx = BitmapIndexPage::find_next_free_page_index(self.bitmap(), self.current_first_free_page_idx + 1)
         }
         None
     }
@@ -175,13 +223,13 @@ impl<'a> BitmapAllocationPage {
         let byte_index = (offset as usize >> 3);
         let bit: u8 = (1 << (offset & 0x07)) as u8;
 
-        let bitmap = self.bitmap();
-        if bitmap[byte_index] & bit == 0 {
-            bitmap[byte_index] |= bit;
+        let byte = &mut self.bitmap_mut()[byte_index];
+        if *byte & bit == 0 {
+            *byte |= bit;
 
             self.free_page_count -= 1;
             if page_id == (self.first_managed_page_id + self.current_first_free_page_idx as u32) {
-                let next = self.find_next_free_page_index(self.current_first_free_page_idx + 1);
+                let next = BitmapIndexPage::find_next_free_page_index(self.bitmap(), self.current_first_free_page_idx + 1);
                 if self.first_free_page_idx == self.current_first_free_page_idx {
                     self.first_free_page_idx = next;
                 }
@@ -190,8 +238,7 @@ impl<'a> BitmapAllocationPage {
         }
     }
 
-    fn find_next_free_page_index(&mut self, start: u16) -> u16 {
-        let bitmap = self.bitmap();
+    fn find_next_free_page_index(bitmap: &[u8], start: u16) -> u16 {
         let byte_start_index = (start >> 3) as usize;
 
         for byte_index in byte_start_index..(PAGE_SIZE - BITMAP_INDEX_PAGE_HEADER_SIZE) {
@@ -229,9 +276,9 @@ impl<'a> BitmapAllocationPage {
         let mask: u8 = !bit;
 
 
-        let bitmap = self.bitmap();
-        if bitmap[byte_index] & bit == bit {
-            bitmap[byte_index] &= mask;
+        let byte = &mut self.bitmap_mut()[byte_index];
+        if *byte & bit == bit {
+            *byte &= mask;
 
             self.free_page_count += 1;
             if page_id < (self.first_managed_page_id + self.first_free_page_idx as u32) {
@@ -241,7 +288,11 @@ impl<'a> BitmapAllocationPage {
     }
 
 
-    fn bitmap(&'a mut self) -> &'a mut [u8] {
+    fn bitmap(&'a self) -> &'a [u8] {
+        &self.buffer[BITMAP_INDEX_PAGE_HEADER_SIZE..PAGE_SIZE]
+    }
+
+    fn bitmap_mut(&'a mut self) -> &'a mut [u8] {
         &mut self.buffer[BITMAP_INDEX_PAGE_HEADER_SIZE..PAGE_SIZE]
     }
 

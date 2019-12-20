@@ -1,4 +1,4 @@
-use crate::page_store::{PageStore, PAGE_SIZE, BitmapAllocationPage, BITMAP_INDEX_PAGE_COUNT, BITMAP_INDEX_PAGE_TYPE};
+use crate::page_store::{PageStore, PAGE_SIZE, BitmapIndexPage, BITMAP_INDEX_PAGE_COUNT, BITMAP_INDEX_PAGE_TYPE};
 
 use std::error::Error;
 use std::fs::File;
@@ -143,7 +143,7 @@ fn new_allocator_for_new_database() {
     let file = tempfile().unwrap();
     let mut store = PageStore::new(file, TESTDB_MAX_SIZE);
 
-    let mut page = BitmapAllocationPage::new(2, 0);
+    let mut page = BitmapIndexPage::new(2, 0);
     page.mark_used(0);
     page.mark_used(1);
 
@@ -158,7 +158,7 @@ fn new_allocator_for_existing_database() {
     let file = tempfile().unwrap();
     let mut store = PageStore::new(file, TESTDB_MAX_SIZE);
 
-    let mut page = BitmapAllocationPage::new(2, 10);
+    let mut page = BitmapIndexPage::new(2, 10);
 
     assert_eq!(2, page.page_id);
     assert_eq!(10, page.first_managed_page_id);
@@ -169,7 +169,7 @@ fn new_allocator_for_existing_database() {
 
 #[test]
 fn allocator_allocates_pages_monotonically_increasing() {
-    let mut page = BitmapAllocationPage::new(2, 10);
+    let mut page = BitmapIndexPage::new(2, 10);
     let f = |_: u32| true;
 
     assert_eq!(Some(10), page.allocate(f));
@@ -182,7 +182,7 @@ fn allocator_allocates_pages_monotonically_increasing() {
 
 #[test]
 fn allocator_allocates_pages_monotonically_increasing_and_skips_used_pages() {
-    let mut page = BitmapAllocationPage::new(2, 10);
+    let mut page = BitmapIndexPage::new(2, 10);
 
     let f = |x: u32| x != 11 && x != 12 && x != 14;
 
@@ -198,7 +198,7 @@ fn allocator_allocates_pages_monotonically_increasing_and_skips_used_pages() {
 fn persist_writes_correct_index() {
     let file = tempfile().unwrap();
     let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
-    let mut page = BitmapAllocationPage::new(2, 0);
+    let mut page = BitmapIndexPage::new(2, 0);
     page.mark_used(0);
     page.mark_used(1);
 
@@ -209,6 +209,101 @@ fn persist_writes_correct_index() {
     assert_eq!(BITMAP_INDEX_PAGE_TYPE, memory_page.page_type());
     assert_eq!(0, memory_page.extract_u32(8)); // first_managed_page_id
     assert_eq!(BITMAP_INDEX_PAGE_COUNT - 3, memory_page.extract_u16(12)); // free page count
-    assert_eq!(3, memory_page.extract_u16(14)); // free page count
-    assert_eq!(7, memory_page.content()[16]);
+    assert_eq!(3, memory_page.extract_u16(14)); // free page index
+    assert_eq!(0x07, memory_page.content()[16]);
+}
+
+#[test]
+fn cannot_load_full_page() {
+    let file = tempfile().unwrap();
+    let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
+
+    let index = BitmapIndexPage {
+        page_id: 2,
+        first_managed_page_id: 0,
+        last_managed_page_id: BITMAP_INDEX_PAGE_COUNT as u32,
+        current_first_free_page_idx: 0xFFFF,
+        first_free_page_idx: 0xFFFF,
+        free_page_count: 0,
+        buffer: [0xFF; PAGE_SIZE]
+    };
+    index.persist(&mut store);
+
+    let memory_page = store.read_page(2).unwrap();
+    let loaded = BitmapIndexPage::load(&memory_page, |_| true);
+    match loaded {
+        None => (),
+        Some(index) => panic!("shouldn't have loaded the index page!")
+    }
+}
+
+#[test]
+fn cannot_load_almost_full_page() {
+    let file = tempfile().unwrap();
+    let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
+
+    let mut buffer = [0xFF; PAGE_SIZE];
+    buffer[PAGE_SIZE-1] = 0x7F;
+
+    let index = BitmapIndexPage {
+        page_id: 2,
+        first_managed_page_id: 0,
+        last_managed_page_id: BITMAP_INDEX_PAGE_COUNT as u32,
+        current_first_free_page_idx: BITMAP_INDEX_PAGE_COUNT - 1,
+        first_free_page_idx: BITMAP_INDEX_PAGE_COUNT - 1,
+        free_page_count: 1,
+        buffer
+    };
+    index.persist(&mut store);
+
+    let memory_page = store.read_page(2).unwrap();
+    let loaded = BitmapIndexPage::load(&memory_page, |_| true);
+    match loaded {
+        None => (),
+        Some(index) => panic!("shouldn't have loaded the index page!")
+    }
+}
+
+#[test]
+fn cannot_load_empty_page_if_still_in_use() {
+    let file = tempfile().unwrap();
+    let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
+
+    let mut index = BitmapIndexPage::new(2, 0);
+    index.persist(&mut store);
+
+    let memory_page = store.read_page(2).unwrap();
+    let loaded = BitmapIndexPage::load(&memory_page, |_| false);
+    match loaded {
+        None => (),
+        Some(index) => panic!("shouldn't have loaded the index page!")
+    }
+}
+
+#[test]
+fn load_and_persist_viable_index() {
+    let file = tempfile().unwrap();
+    let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
+    let mut page = BitmapIndexPage::new(2, 0);
+    page.mark_used(0);
+    page.mark_used(1);
+    page.allocate(|_| true);
+    page.allocate(|_| true);
+    page.free(3);
+
+    page.persist(&mut store).unwrap();
+
+    let memory_page = store.read_page(2).unwrap();
+
+    let mut new_index = BitmapIndexPage::load(&memory_page, |x| x != 3).unwrap();
+    new_index.allocate(|x| x != 3);
+    new_index.persist(&mut store).unwrap();
+
+    let new_memory_page = store.read_page(5).unwrap();
+    assert_eq!(5, new_memory_page.page_id());
+    assert_eq!(BITMAP_INDEX_PAGE_TYPE, new_memory_page.page_type());
+    assert_eq!(0, new_memory_page.extract_u32(8)); // first_managed_page_id
+    assert_eq!(BITMAP_INDEX_PAGE_COUNT - 5, new_memory_page.extract_u16(12)); // free page count
+    assert_eq!(2, new_memory_page.extract_u16(14)); // free page index
+    assert_eq!(0x73, new_memory_page.content()[16]);
 }
