@@ -159,12 +159,31 @@ impl<'a> BitmapIndexPage {
         page
     }
 
-    pub fn load(page: &MemoryPage, f: fn(u32) -> bool) -> Option<BitmapIndexPage> {
-        let page_type = page.page_type();
-        if page_type != PageType::Bitmap as u32 {
-            return None
-        }
+    pub fn load_into(page: &MemoryPage, page_id: u32) -> BitmapIndexPage {
+        let first_managed_page_id = page.extract_u32(8);
+        let last_managed_page_id = first_managed_page_id + (BITMAP_INDEX_PAGE_COUNT as u32) - 1;
+        let free_page_count = page.extract_u16(12);
+        let first_free_page_idx = page.extract_u16(14);
+        let current_first_free_page_idx = first_free_page_idx;
 
+        let mut buffer = [0; PAGE_SIZE];
+        buffer.clone_from_slice(page.content());
+
+        let mut index = BitmapIndexPage {
+            page_id,
+            first_managed_page_id,
+            last_managed_page_id,
+            current_first_free_page_idx,
+            first_free_page_idx,
+            free_page_count,
+            buffer
+        };
+        index.free(page.page_id());
+
+        index
+    }
+
+    pub fn load(page: &MemoryPage, f: fn(u32) -> bool) -> Option<BitmapIndexPage> {
         let first_managed_page_id = page.extract_u32(8);
         let free_page_count = page.extract_u16(12);
         let first_free_page_idx = page.extract_u16(14);
@@ -202,7 +221,7 @@ impl<'a> BitmapIndexPage {
             buffer
         };
         index.mark_used(page_id);
-        index.mark_free(page.page_id());
+        index.free(page.page_id());
 
         Some(index)
     }
