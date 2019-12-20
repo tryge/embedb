@@ -1,4 +1,4 @@
-use crate::page_store::{PageStore, PAGE_SIZE, BitmapIndexPage, BITMAP_INDEX_PAGE_COUNT, BITMAP_INDEX_PAGE_TYPE};
+use crate::page_store::{PageStore, PAGE_SIZE, BitmapIndexPage, BITMAP_INDEX_PAGE_COUNT, PageType};
 
 use std::error::Error;
 use std::fs::File;
@@ -206,7 +206,7 @@ fn persist_writes_correct_index() {
 
     let memory_page = store.read_page(2).unwrap();
     assert_eq!(2, memory_page.page_id());
-    assert_eq!(BITMAP_INDEX_PAGE_TYPE, memory_page.page_type());
+    assert_eq!(PageType::Bitmap as u32, memory_page.page_type());
     assert_eq!(0, memory_page.extract_u32(8)); // first_managed_page_id
     assert_eq!(BITMAP_INDEX_PAGE_COUNT - 3, memory_page.extract_u16(12)); // free page count
     assert_eq!(3, memory_page.extract_u16(14)); // free page index
@@ -221,7 +221,7 @@ fn cannot_load_full_page() {
     let index = BitmapIndexPage {
         page_id: 2,
         first_managed_page_id: 0,
-        last_managed_page_id: BITMAP_INDEX_PAGE_COUNT as u32,
+        last_managed_page_id: PageType::Bitmap as u32,
         current_first_free_page_idx: 0xFFFF,
         first_free_page_idx: 0xFFFF,
         free_page_count: 0,
@@ -301,7 +301,7 @@ fn load_and_persist_viable_index() {
 
     let new_memory_page = store.read_page(5).unwrap();
     assert_eq!(5, new_memory_page.page_id());
-    assert_eq!(BITMAP_INDEX_PAGE_TYPE, new_memory_page.page_type());
+    assert_eq!(PageType::Bitmap as u32, new_memory_page.page_type());
     assert_eq!(0, new_memory_page.extract_u32(8)); // first_managed_page_id
     assert_eq!(BITMAP_INDEX_PAGE_COUNT - 5, new_memory_page.extract_u16(12)); // free page count
     assert_eq!(2, new_memory_page.extract_u16(14)); // free page index

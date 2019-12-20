@@ -10,6 +10,10 @@ mod tests;
 
 const PAGE_SIZE: usize = 4096;
 
+enum PageType {
+    Bitmap = 1
+}
+
 pub struct PageStore {
     file: File,
     mmap: Arc<Mmap>,
@@ -123,7 +127,6 @@ impl<'a> MemoryPage {
     }
 }
 
-const BITMAP_INDEX_PAGE_TYPE: u32 = 1;
 const BITMAP_INDEX_PAGE_HEADER_SIZE: usize = 16;
 const BITMAP_INDEX_PAGE_COUNT: u16 = ((PAGE_SIZE - BITMAP_INDEX_PAGE_HEADER_SIZE) * 8) as u16;
 
@@ -158,7 +161,7 @@ impl<'a> BitmapIndexPage {
 
     pub fn load(page: &MemoryPage, f: fn(u32) -> bool) -> Option<BitmapIndexPage> {
         let page_type = page.page_type();
-        if page_type != BITMAP_INDEX_PAGE_TYPE {
+        if page_type != PageType::Bitmap as u32 {
             return None
         }
 
@@ -307,7 +310,7 @@ impl<'a> BitmapIndexPage {
         let page_id_bytes = self.page_id.to_le_bytes();
         self.buffer[0..4].clone_from_slice(&page_id_bytes);
 
-        let page_type_bytes = BITMAP_INDEX_PAGE_TYPE.to_le_bytes();
+        let page_type_bytes = (PageType::Bitmap as u32).to_le_bytes();
         self.buffer[4..8].clone_from_slice(&page_type_bytes);
 
         let first_page_id_bytes = self.first_managed_page_id.to_le_bytes();
