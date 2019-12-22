@@ -39,16 +39,16 @@ impl<'a> BitmapIndexPage {
         page
     }
 
-    pub fn load(page: &MemoryPage, f: impl Fn(u32) -> bool) -> Option<Pin<Box<BitmapIndexPage>>> {
+    pub fn load(page: &MemoryPage, mut f: impl FnMut(u32) -> bool) -> Option<Pin<Box<BitmapIndexPage>>> {
         let first_managed_page_id = page.get_u32(8);
         let free_page_count = page.get_u16(12);
         let first_free_page_idx = page.get_u16(14);
 
         let bitmap = &page.content()[BITMAP_INDEX_PAGE_HEADER_SIZE..];
-        let filter = |x: u16| f(first_managed_page_id + x as u32);
+        let mut filter = |x: u16| f(first_managed_page_id + x as u32);
 
-        let current_idx = bitmap.find_clear_filtered(first_free_page_idx, filter)?;
-        let next_idx = bitmap.find_clear_filtered(current_idx + 1, filter)?;
+        let current_idx = bitmap.find_clear_filtered(first_free_page_idx, &mut filter)?;
+        let next_idx = bitmap.find_clear_filtered(current_idx + 1, &mut filter)?;
         let page_id = first_managed_page_id + current_idx as u32;
 
         let mut buffer = [0; PAGE_SIZE];
@@ -94,24 +94,23 @@ impl<'a> BitmapIndexPage {
     }
 
 
-    pub fn allocate(&mut self, f: impl Fn(u32) -> bool) -> Option<u32> {
+    pub fn allocate(&mut self, mut f: impl FnMut(u32) -> bool) -> Option<u32> {
         let start_page = self.first_managed_page_id;
-        let filter = |x: u16| f(start_page + x as u32);
-        let (current_idx, page) = match self.bitmap().find_clear_filtered(self.current_first_free_page_idx, filter) {
+        let mut filter = |x: u16| f(start_page + x as u32);
+        let (current_idx, page) = match self.bitmap().find_clear_filtered(self.current_first_free_page_idx, &mut filter) {
             Some(idx) => (idx, Some(self.first_managed_page_id + idx as u32)),
             None => (0xFFFF, None)
         };
 
         self.current_first_free_page_idx = current_idx;
-        match page {
-            Some(page_id) => self.mark_used(page_id, filter),
-            None => false
-        };
-        page
+        page.map(|page_id| {
+            self.mark_used(page_id, &mut filter);
+            page_id
+        })
     }
 
 
-    fn mark_used(&mut self, page_id: u32, f: impl Fn(u16) -> bool) -> bool {
+    fn mark_used(&mut self, page_id: u32, mut f: impl FnMut(u16) -> bool) -> bool {
         let offset = page_id - self.first_managed_page_id;
         let changed = self.bitmap_mut().set(offset as u16);
         if changed {
@@ -134,18 +133,16 @@ impl<'a> BitmapIndexPage {
 
 
     pub fn free(&mut self, page_id: u32) -> bool {
-        if page_id >= self.first_managed_page_id && page_id <= self.last_managed_page_id {
+        let in_range = page_id >= self.first_managed_page_id && page_id <= self.last_managed_page_id;
+        if in_range {
             self.mark_free(page_id);
-            true
-        } else {
-            false
         }
+        in_range
     }
 
     fn mark_free(&mut self, page_id: u32) {
         let offset = page_id - self.first_managed_page_id;
-        let changed = self.bitmap_mut().clear(offset as u16);
-        if changed {
+        if self.bitmap_mut().clear(offset as u16) {
             self.free_page_count += 1;
             if page_id < self.page_for(self.first_free_page_idx) {
                 self.first_free_page_idx = (page_id - self.first_managed_page_id) as u16
@@ -179,7 +176,7 @@ impl<'a> BitmapIndexPage {
 }
 
 trait Bitmap {
-    fn find_clear_filtered(&self, offset: u16, f: impl Fn(u16) -> bool) -> Option<u16>;
+    fn find_clear_filtered(&self, offset: u16, mut f: impl FnMut(u16) -> bool) -> Option<u16>;
 
     fn set(&mut self, index: u16) -> bool;
     fn clear(&mut self, index: u16) -> bool;
@@ -193,7 +190,7 @@ trait Bitmap {
 }
 
 impl Bitmap for [u8] {
-    fn find_clear_filtered(&self, offset: u16, f: impl Fn(u16) -> bool) -> Option<u16> {
+    fn find_clear_filtered(&self, offset: u16, mut f: impl FnMut(u16) -> bool) -> Option<u16> {
         let byte_start_index = (offset >> 3) as usize;
         if byte_start_index >= self.len() {
             return None;
