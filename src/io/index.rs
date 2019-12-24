@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::thread::current;
 
 const INDEX_HEADER_SIZE: usize = 16;
-const INDEX_BITMAP_COUNT: u16 = ((PAGE_SIZE - INDEX_HEADER_SIZE) * 8) as u16;
+const INDEX_BITMAP_COUNT: u16 = ((PAGE_SIZE - INDEX_HEADER_SIZE) / 8) as u16;
 
 pub struct IndexPage {
     page_id: u32,
