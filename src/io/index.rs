@@ -61,7 +61,8 @@ impl<'a> IndexPage {
             buffer
         });
 
-        if index.activate_next_bitmap(page_store, first_free_bitmap_idx, f) {
+        if index.activate_next_bitmap(page_store, first_free_bitmap_idx, &mut f) {
+            index.page_id = index.allocate(page_store, &mut f)?;
             Some(index)
         } else {
             None
