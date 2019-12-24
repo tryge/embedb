@@ -127,7 +127,7 @@ impl<'a> BitmapPage {
 
 
     pub fn free(&mut self, page_id: u32) -> bool {
-        let in_range = page_id >= self.first_managed_page_id && page_id <= self.last_managed_page_id;
+        let in_range = self.contains(page_id);
         if in_range {
             self.mark_free(page_id);
         }
@@ -151,6 +151,11 @@ impl<'a> BitmapPage {
 
     fn bitmap_mut(&'a mut self) -> &'a mut [u8] {
         &mut self.buffer[BITMAP_HEADER_SIZE..PAGE_SIZE]
+    }
+
+
+    pub fn contains(&self, page_id: u32) -> bool {
+        page_id >= self.first_managed_page_id && page_id <= self.last_managed_page_id
     }
 
 
@@ -200,6 +205,28 @@ impl BitmapHeader for MemoryPage {
 }
 
 impl BitmapHeader for Pin<Box<BitmapPage>> {
+    fn page_id(&self) -> u32 {
+        self.page_id
+    }
+
+    fn page_type(&self) -> u32 {
+        PageType::Bitmap as u32
+    }
+
+    fn first_managed_page_id(&self) -> u32 {
+        self.first_managed_page_id
+    }
+
+    fn free_page_count(&self) -> u16 {
+        self.free_page_count
+    }
+
+    fn first_free_page_index(&self) -> u16 {
+        self.first_free_page_idx
+    }
+}
+
+impl BitmapHeader for &Pin<Box<BitmapPage>> {
     fn page_id(&self) -> u32 {
         self.page_id
     }
