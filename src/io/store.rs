@@ -135,7 +135,7 @@ mod tests {
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page(0, &vec) {
-            Err(e) => (),
+            Err(_) => (),
             Ok(()) => panic!("should not have written the page")
         }
     }
@@ -148,7 +148,7 @@ mod tests {
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page(0, &vec) {
-            Err(e) => (),
+            Err(_) => (),
             Ok(()) => panic!("should not have written the page")
         }
     }
@@ -188,7 +188,7 @@ mod tests {
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page_range(0, PAGE_SIZE - vec.len() + 1, &vec) {
-            Err(e) => (),
+            Err(_) => (),
             Ok(()) => panic!("should have failed to write page subset")
         }
     }
@@ -201,7 +201,7 @@ mod tests {
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
 
         match store.write_page_range((TESTDB_MAX_SIZE / PAGE_SIZE) + 1, 0, &vec) {
-            Err(e) => (),
+            Err(_) => (),
             Ok(()) => panic!("should have failed to write page subset")
         }
     }
@@ -239,8 +239,8 @@ mod tests {
         let mut store = PageStore::new(file, TESTDB_MAX_SIZE).unwrap();
         store.write_page_range(0, 0, &vec).unwrap();
         match store.read_page(1) {
-            Err(e) => (),
-            Ok(v) => panic!("should have failed")
+            Err(_) => (),
+            Ok(_) => panic!("should have failed")
         }
     }
 
