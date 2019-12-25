@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use std::io::Result;
 use std::pin::Pin;
 
+#[cfg(test)]
+mod tests;
+
 const INDEX_HEADER_SIZE: usize = 16;
 const INDEX_BITMAP_COUNT: u16 = ((PAGE_SIZE - INDEX_HEADER_SIZE) / 8) as u16;
 
@@ -228,21 +231,3 @@ fn put_u32(buffer: &mut [u8], idx: usize, value: u32) {
     buffer[idx..idx + 4].clone_from_slice(&bytes);
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::io::bitmap::{BitmapPage, BITMAP_PAGE_COUNT};
-    use crate::io::index::IndexPage;
-
-    #[test]
-    fn grow_from_first_bitmap() {
-        let mut page = BitmapPage::new(2);
-        let mut index = IndexPage::grow(&page);
-
-        assert_eq!(BITMAP_PAGE_COUNT as u32 + 1, index.page_id);
-        assert_eq!(2, index.first_managed_page_id);
-        assert_eq!(2, index.current_bitmap_count);
-        assert_eq!(1, index.current_bitmap_idx);
-        assert_eq!(0, index.first_free_bitmap_idx);
-        assert_eq!(1, index.dirty_bitmaps.len());
-    }
-}
