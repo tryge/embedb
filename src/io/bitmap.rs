@@ -104,7 +104,7 @@ impl<'a> BitmapPage {
     }
 
 
-    fn mark_used(&mut self, page_id: u32, mut f: impl FnMut(u16) -> bool) -> bool {
+    fn mark_used(&mut self, page_id: u32, f: impl FnMut(u16) -> bool) -> bool {
         let offset = page_id - self.first_managed_page_id;
         let changed = self.bitmap_mut().set(offset as u16);
         if changed {
@@ -249,7 +249,7 @@ impl BitmapHeader for &Pin<Box<BitmapPage>> {
 }
 
 trait Bitmap {
-    fn find_clear_filtered(&self, offset: u16, mut f: impl FnMut(u16) -> bool) -> Option<u16>;
+    fn find_clear_filtered(&self, offset: u16, f: impl FnMut(u16) -> bool) -> Option<u16>;
 
     fn set(&mut self, index: u16) -> bool;
     fn clear(&mut self, index: u16) -> bool;

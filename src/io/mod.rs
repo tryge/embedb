@@ -1,9 +1,9 @@
 use std::error;
 use std::io::{Error, ErrorKind, Result};
 
-mod bitmap;
-mod index;
-mod store;
+pub mod bitmap;
+pub mod index;
+pub mod store;
 
 const PAGE_SIZE: usize = 4096;
 

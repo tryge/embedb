@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::{Seek, Write, SeekFrom};
 use std::io::{Result};
 use memmap::{Mmap, MmapOptions};
-use std::error;
 use std::sync::Arc;
 use crate::io::{PAGE_SIZE, invalid_input};
 
