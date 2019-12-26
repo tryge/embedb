@@ -51,14 +51,14 @@ impl<'a> IndexPage {
         let mut buffer = [0; PAGE_SIZE];
         buffer.copy_from_slice(memory.content());
 
-        let mut index = Box::pin( IndexPage {
-            page_id: 0xFFFFFFFF,
+        let mut index = Box::pin(IndexPage {
+            page_id: 0xFFFF_FFFF,
             first_managed_page_id,
             current_bitmap_count,
             current_bitmap_idx: first_free_bitmap_idx,
             first_free_bitmap_idx,
             dirty_bitmaps: HashMap::new(),
-            buffer
+            buffer,
         });
 
         if index.activate_next_bitmap(page_store, first_free_bitmap_idx, &mut f) {
@@ -93,21 +93,18 @@ impl<'a> IndexPage {
             let bitmap_page_id = get_u32(content, (bitmap_idx * 8) as usize);
             let bitmap_page = page_store.read_page(bitmap_page_id as usize).unwrap();
 
-            match BitmapPage::load(&bitmap_page, &mut f) {
-                Some(bitmap) => {
-                    let freed = bitmap.contains(bitmap_page_id);
-                    self.update(&bitmap);
-                    self.current_bitmap_idx = idx;
-                    self.dirty_bitmaps.insert(idx, bitmap);
-                    if !freed {
-                        match self.free(bitmap_page_id, page_store, &mut f) {
-                            None => return false,
-                            Some(_) => ()
-                        }
+            if let Some(bitmap) = BitmapPage::load(&bitmap_page, &mut f) {
+                let freed = bitmap.contains(bitmap_page_id);
+                self.update(&bitmap);
+                self.current_bitmap_idx = idx;
+                self.dirty_bitmaps.insert(idx, bitmap);
+                if !freed {
+                    match self.free(bitmap_page_id, page_store, &mut f) {
+                        None => return false,
+                        Some(_) => ()
                     }
-                    return true;
                 }
-                None => ()
+                return true;
             }
         }
 
@@ -121,7 +118,7 @@ impl<'a> IndexPage {
             self.update(&bitmap);
             self.dirty_bitmaps.insert(self.current_bitmap_count, bitmap);
             self.current_bitmap_idx = self.current_bitmap_count;
-            self.current_bitmap_count = self.current_bitmap_count + 1;
+            self.current_bitmap_count += 1;
         }
         result
     }
@@ -136,10 +133,8 @@ impl<'a> IndexPage {
             self.update_bitmap_data(self.current_bitmap_idx, page_id, free_page_count);
             if result.is_some() {
                 return result;
-            } else {
-                if !self.activate_next_bitmap(page_store, self.current_bitmap_idx + 1, &mut f) {
-                    return None;
-                }
+            } else if !self.activate_next_bitmap(page_store, self.current_bitmap_idx + 1, &mut f) {
+                return None;
             }
         }
     }
@@ -199,13 +194,13 @@ impl<'a> IndexPage {
         if bitmap_idx < self.first_free_bitmap_idx && free_page_count > 0 {
             self.first_free_bitmap_idx = bitmap_idx;
         } else if bitmap_idx == self.first_free_bitmap_idx && free_page_count == 0 {
-            for idx in bitmap_idx+1..self.current_bitmap_count {
+            for idx in bitmap_idx + 1..self.current_bitmap_count {
                 let index = INDEX_HEADER_SIZE + (idx as usize * 8) + 4;
                 let page_count = get_u32(&self.buffer, index);
 
                 if page_count > 0 {
                     self.first_free_bitmap_idx = idx;
-                    return ()
+                    return;
                 }
             }
             self.first_free_bitmap_idx = self.current_bitmap_count

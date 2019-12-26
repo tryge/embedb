@@ -269,13 +269,12 @@ impl Bitmap for [u8] {
             }
         }
 
-        for byte_index in (byte_start_index + 1)..self.len() {
-            let byte = self[byte_index];
-            if byte != 0xFF {
+        for (byte_index, byte) in self[byte_start_index+1..].iter().enumerate() {
+            if *byte != 0xFF {
                 for bit in 0..=7 as u16 {
                     let mask = (1 << bit) as u8;
-                    if byte & mask == 0 {
-                        let candidate = ((byte_index as u16) << 3) + bit;
+                    if *byte & mask == 0 {
+                        let candidate = (((byte_start_index + byte_index + 1) as u16) << 3) + bit;
                         if f(candidate) {
                             return Some(candidate);
                         }

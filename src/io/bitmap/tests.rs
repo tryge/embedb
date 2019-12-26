@@ -59,7 +59,7 @@ fn searches_through_all_bits_for_next_free_page() {
     index.current_first_free_page_idx = 0;
 
     let option = index.allocate(unfiltered);
-    assert!(option.is_some())
+    assert_eq!(Some(2 + BITMAP_PAGE_COUNT as u32 -1), option)
 }
 
 #[test]
