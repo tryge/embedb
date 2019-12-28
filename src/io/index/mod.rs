@@ -22,7 +22,7 @@ pub struct IndexPage {
 }
 
 impl<'a> IndexPage {
-    pub fn grow(bitmap: &dyn BitmapHeader) -> Pin<Box<IndexPage>> {
+    pub fn grow(bitmap: Pin<Box<BitmapPage>>) -> Pin<Box<IndexPage>> {
         let mut second = BitmapPage::new(BITMAP_PAGE_COUNT as u32);
 
         let page_id = second.allocate(|_| true).unwrap();
@@ -36,8 +36,9 @@ impl<'a> IndexPage {
             dirty_bitmaps: HashMap::new(),
             buffer: [0; PAGE_SIZE],
         });
-        index.update(bitmap);
+        index.update(&bitmap);
         index.update(&second);
+        index.dirty_bitmaps.insert(0, bitmap);
         index.dirty_bitmaps.insert(1, second);
         index
     }
@@ -87,7 +88,7 @@ impl<'a> IndexPage {
         put_u16(&mut self.buffer, 14, self.first_free_bitmap_idx);
     }
 
-    fn activate_next_bitmap(&mut self, page_store: &PageStore, bitmap_idx: u16, mut f: impl FnMut(u32) -> bool) -> bool {
+    fn activate_next_bitmap(&mut self, page_store: &PageStore, bitmap_idx: u16, mut f: &mut impl FnMut(u32) -> bool) -> bool {
         let content = &self.buffer[INDEX_HEADER_SIZE..];
         for idx in bitmap_idx..self.current_bitmap_count {
             let bitmap_page_id = get_u32(content, (bitmap_idx * 8) as usize);
@@ -99,7 +100,7 @@ impl<'a> IndexPage {
                 self.current_bitmap_idx = idx;
                 self.dirty_bitmaps.insert(idx, bitmap);
                 if !freed {
-                    match self.free(bitmap_page_id, page_store, &mut f) {
+                    match self.free(bitmap_page_id, page_store, f) {
                         None => return false,
                         Some(_) => ()
                     }
@@ -123,7 +124,7 @@ impl<'a> IndexPage {
         result
     }
 
-    pub fn allocate(&mut self, page_store: &PageStore, mut f: impl FnMut(u32) -> bool) -> Option<u32> {
+    pub fn allocate(&mut self, page_store: &PageStore, mut f: &mut impl FnMut(u32) -> bool) -> Option<u32> {
         loop {
             let bitmap = self.dirty_bitmaps.get_mut(&self.current_bitmap_idx).unwrap();
             let result = bitmap.allocate(&mut f);
@@ -133,13 +134,13 @@ impl<'a> IndexPage {
             self.update_bitmap_data(self.current_bitmap_idx, page_id, free_page_count);
             if result.is_some() {
                 return result;
-            } else if !self.activate_next_bitmap(page_store, self.current_bitmap_idx + 1, &mut f) {
+            } else if !self.activate_next_bitmap(page_store, self.current_bitmap_idx + 1, f) {
                 return None;
             }
         }
     }
 
-    pub fn free(&mut self, page_id: u32, page_store: &PageStore, f: impl FnMut(u32) -> bool) -> Option<bool> {
+    pub fn free(&mut self, page_id: u32, page_store: &PageStore, f: &mut impl FnMut(u32) -> bool) -> Option<bool> {
         let freed = self.free_dirty(page_id);
         if freed.is_some() {
             return freed;
@@ -160,8 +161,8 @@ impl<'a> IndexPage {
         Some(result)
     }
 
-    fn free_unloaded(&mut self, page_id: u32, page_store: &PageStore, mut f: impl FnMut(u32) -> bool) -> Option<bool> {
-        let new_bitmap_page_id = self.allocate(page_store, &mut f)?;
+    fn free_unloaded(&mut self, page_id: u32, page_store: &PageStore, mut f: &mut impl FnMut(u32) -> bool) -> Option<bool> {
+        let new_bitmap_page_id = self.allocate(page_store, f)?;
 
         let bitmap_idx = ((page_id - self.first_managed_page_id) / BITMAP_PAGE_COUNT as u32) as u16;
 
