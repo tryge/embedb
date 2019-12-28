@@ -23,7 +23,7 @@ pub struct IndexPage {
 
 impl<'a> IndexPage {
     pub fn grow(bitmap: Pin<Box<BitmapPage>>) -> Pin<Box<IndexPage>> {
-        let mut second = BitmapPage::new(BITMAP_PAGE_COUNT as u32);
+        let mut second = BitmapPage::new(bitmap.first_managed_page_id() + BITMAP_PAGE_COUNT as u32);
 
         let page_id = second.allocate(|_| true).unwrap();
 
@@ -161,7 +161,7 @@ impl<'a> IndexPage {
         Some(result)
     }
 
-    fn free_unloaded(&mut self, page_id: u32, page_store: &PageStore, mut f: &mut impl FnMut(u32) -> bool) -> Option<bool> {
+    fn free_unloaded(&mut self, page_id: u32, page_store: &PageStore, f: &mut impl FnMut(u32) -> bool) -> Option<bool> {
         let new_bitmap_page_id = self.allocate(page_store, f)?;
 
         let bitmap_idx = ((page_id - self.first_managed_page_id) / BITMAP_PAGE_COUNT as u32) as u16;
