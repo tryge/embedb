@@ -10,6 +10,7 @@ mod tests;
 
 const INDEX_HEADER_SIZE: usize = 16;
 const INDEX_BITMAP_COUNT: u16 = ((PAGE_SIZE - INDEX_HEADER_SIZE) / 8) as u16;
+const INDEX_FREE_PAGE_OFFSET: usize = INDEX_BITMAP_COUNT as usize * 4;
 
 pub struct IndexPage {
     page_id: u32,
@@ -91,7 +92,12 @@ impl<'a> IndexPage {
     fn activate_next_bitmap(&mut self, page_store: &PageStore, bitmap_idx: u16, mut f: &mut impl FnMut(u32) -> bool) -> bool {
         let content = &self.buffer[INDEX_HEADER_SIZE..];
         for idx in bitmap_idx..self.current_bitmap_count {
-            let bitmap_page_id = get_u32(content, (bitmap_idx * 8) as usize);
+            let free_page_count = get_u32(content, INDEX_FREE_PAGE_OFFSET + idx as usize * 4);
+            if free_page_count == 0 {
+                continue;
+            }
+
+            let bitmap_page_id = get_u32(content, idx as usize * 4);
             let bitmap_page = page_store.read_page(bitmap_page_id as usize).unwrap();
 
             if let Some(bitmap) = BitmapPage::load(&bitmap_page, &mut f) {
@@ -166,7 +172,7 @@ impl<'a> IndexPage {
 
         let bitmap_idx = ((page_id - self.first_managed_page_id) / BITMAP_PAGE_COUNT as u32) as u16;
 
-        let old_bitmap_page_id = get_u32(&self.buffer[INDEX_HEADER_SIZE..], bitmap_idx as usize * 8);
+        let old_bitmap_page_id = get_u32(&self.buffer[INDEX_HEADER_SIZE..], bitmap_idx as usize * 4);
 
         let bitmap_memory = page_store.read_page(old_bitmap_page_id as usize).ok()?;
 
@@ -187,16 +193,16 @@ impl<'a> IndexPage {
     }
 
     fn update_bitmap_data(&mut self, bitmap_idx: u16, page_id: u32, free_page_count: u16) {
-        let index = INDEX_HEADER_SIZE + (bitmap_idx * 8) as usize;
+        let index = INDEX_HEADER_SIZE + (bitmap_idx * 4) as usize;
 
         put_u32(&mut self.buffer, index, page_id);
-        put_u32(&mut self.buffer, index + 4, free_page_count as u32);
+        put_u32(&mut self.buffer, index + INDEX_FREE_PAGE_OFFSET, free_page_count as u32);
 
         if bitmap_idx < self.first_free_bitmap_idx && free_page_count > 0 {
             self.first_free_bitmap_idx = bitmap_idx;
         } else if bitmap_idx == self.first_free_bitmap_idx && free_page_count == 0 {
             for idx in bitmap_idx + 1..self.current_bitmap_count {
-                let index = INDEX_HEADER_SIZE + (idx as usize * 8) + 4;
+                let index = INDEX_HEADER_SIZE + INDEX_FREE_PAGE_OFFSET + idx as usize * 4;
                 let page_count = get_u32(&self.buffer, index);
 
                 if page_count > 0 {
